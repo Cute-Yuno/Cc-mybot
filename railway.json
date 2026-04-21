@@ -1,6 +1,6 @@
 {
   "build": {
-    "builder": "CUTE_YUNO"
+    "builder": "CUTEYUNO"
   },
   "deploy": {
     "startCommand": "python bot.py",
