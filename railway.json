@@ -1,6 +1,6 @@
 {
   "build": {
-    "builder": "NIXPACKS"
+    "builder": "CUTE_YUNO"
   },
   "deploy": {
     "startCommand": "python bot.py",
